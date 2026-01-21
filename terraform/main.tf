@@ -8,13 +8,14 @@ terraform {
     }
   }
 
-  backend "s3" {
-    bucket         = "aws-testing-terraform-state"
-    key            = "aws_testing/terraform.tfstate"
-    region         = "eu-central-1"
-    encrypt        = true
-    dynamodb_table = "aws-testing-terraform-locks"
-  }
+  # Temporarily commented out - will be enabled after backend infrastructure is created
+  # backend "s3" {
+  #   bucket         = "aws-testing-terraform-state"
+  #   key            = "aws_testing/terraform.tfstate"
+  #   region         = "eu-central-1"
+  #   encrypt        = true
+  #   dynamodb_table = "aws-testing-terraform-locks"
+  # }
 }
 
 provider "aws" {
