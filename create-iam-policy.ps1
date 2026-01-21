@@ -14,12 +14,16 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Check if AWS CLI is installed
+Write-Host "Checking for AWS CLI..." -ForegroundColor Yellow
+$awsCliExists = $false
 try {
-    $null = aws --version
-    Write-Host "✓ AWS CLI found" -ForegroundColor Green
-} catch {
-    Write-Host "✗ AWS CLI not found. Please install AWS CLI first." -ForegroundColor Red
-    Write-Host "  Download from: https://aws.amazon.com/cli/" -ForegroundColor Yellow
+    $null = aws --version 2>&1
+    $awsCliExists = $true
+    Write-Host "OK AWS CLI found" -ForegroundColor Green
+}
+catch {
+    Write-Host "ERROR AWS CLI not found" -ForegroundColor Red
+    Write-Host "Please install AWS CLI from: https://aws.amazon.com/cli/" -ForegroundColor Yellow
     exit 1
 }
 
@@ -27,14 +31,19 @@ try {
 Write-Host ""
 Write-Host "Checking AWS credentials..." -ForegroundColor Yellow
 try {
-    $identity = aws sts get-caller-identity --output json | ConvertFrom-Json
+    $identityJson = aws sts get-caller-identity --output json 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "AWS authentication failed"
+    }
+    $identity = $identityJson | ConvertFrom-Json
     $accountId = $identity.Account
-    Write-Host "✓ Authenticated as: $($identity.Arn)" -ForegroundColor Green
-    Write-Host "  Account ID: $accountId" -ForegroundColor Gray
-} catch {
-    Write-Host "✗ Failed to authenticate with AWS" -ForegroundColor Red
-    Write-Host "  Make sure you have AWS credentials configured" -ForegroundColor Yellow
-    Write-Host "  Run: aws configure" -ForegroundColor Yellow
+    Write-Host "OK Authenticated as: $($identity.Arn)" -ForegroundColor Green
+    Write-Host "   Account ID: $accountId" -ForegroundColor Gray
+}
+catch {
+    Write-Host "ERROR Failed to authenticate with AWS" -ForegroundColor Red
+    Write-Host "Make sure you have AWS credentials configured" -ForegroundColor Yellow
+    Write-Host "Run: aws configure" -ForegroundColor Yellow
     exit 1
 }
 
@@ -164,8 +173,8 @@ $policyJson = @"
 
 # Save to temp file
 $tempFile = [System.IO.Path]::GetTempFileName()
-$policyJson | Out-File -FilePath $tempFile -Encoding utf8
-Write-Host "✓ Policy JSON created" -ForegroundColor Green
+$policyJson | Out-File -FilePath $tempFile -Encoding utf8 -NoNewline
+Write-Host "OK Policy JSON created" -ForegroundColor Green
 
 # Check if policy already exists
 Write-Host ""
@@ -173,33 +182,32 @@ Write-Host "Checking if policy already exists..." -ForegroundColor Yellow
 $policyArn = "arn:aws:iam::${accountId}:policy/$PolicyName"
 $policyExists = $false
 
-try {
-    $null = aws iam get-policy --policy-arn $policyArn 2>&1
+$checkResult = aws iam get-policy --policy-arn $policyArn 2>&1
+if ($LASTEXITCODE -eq 0) {
     $policyExists = $true
-    Write-Host "✓ Policy already exists: $policyArn" -ForegroundColor Yellow
-} catch {
-    Write-Host "  Policy does not exist, will create new" -ForegroundColor Gray
+    Write-Host "OK Policy already exists: $policyArn" -ForegroundColor Yellow
+}
+else {
+    Write-Host "   Policy does not exist, will create new" -ForegroundColor Gray
 }
 
 # Create policy if it doesn't exist
 if (-not $policyExists) {
     Write-Host ""
     Write-Host "Creating IAM policy..." -ForegroundColor Yellow
-    try {
-        $result = aws iam create-policy `
-            --policy-name $PolicyName `
-            --description "Comprehensive policy for Terraform to manage aws-testing project resources" `
-            --policy-document "file://$tempFile" `
-            --tags "Key=Name,Value=Terraform Deploy Policy" "Key=Project,Value=aws-testing" "Key=ManagedBy,Value=PowerShell-Script" `
-            --output json | ConvertFrom-Json
 
+    $createResult = aws iam create-policy --policy-name $PolicyName --description "Comprehensive policy for Terraform to manage aws-testing project resources" --policy-document "file://$tempFile" --tags "Key=Name,Value=Terraform Deploy Policy" "Key=Project,Value=aws-testing" "Key=ManagedBy,Value=PowerShell-Script" --output json 2>&1
+
+    if ($LASTEXITCODE -eq 0) {
+        $result = $createResult | ConvertFrom-Json
         $policyArn = $result.Policy.Arn
-        Write-Host "✓ Policy created successfully!" -ForegroundColor Green
-        Write-Host "  ARN: $policyArn" -ForegroundColor Gray
-    } catch {
-        Write-Host "✗ Failed to create policy" -ForegroundColor Red
-        Write-Host "  Error: $_" -ForegroundColor Red
-        Remove-Item $tempFile -Force
+        Write-Host "OK Policy created successfully!" -ForegroundColor Green
+        Write-Host "   ARN: $policyArn" -ForegroundColor Gray
+    }
+    else {
+        Write-Host "ERROR Failed to create policy" -ForegroundColor Red
+        Write-Host "Error: $createResult" -ForegroundColor Red
+        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         exit 1
     }
 }
@@ -209,30 +217,36 @@ Write-Host ""
 Write-Host "Checking if policy is attached to $UserName..." -ForegroundColor Yellow
 $attachmentExists = $false
 
-try {
-    $attachedPolicies = aws iam list-attached-user-policies --user-name $UserName --output json | ConvertFrom-Json
+$attachedPoliciesJson = aws iam list-attached-user-policies --user-name $UserName --output json 2>&1
+if ($LASTEXITCODE -eq 0) {
+    $attachedPolicies = $attachedPoliciesJson | ConvertFrom-Json
     $attachmentExists = $attachedPolicies.AttachedPolicies | Where-Object { $_.PolicyName -eq $PolicyName }
 
     if ($attachmentExists) {
-        Write-Host "✓ Policy already attached to $UserName" -ForegroundColor Yellow
-    } else {
-        Write-Host "  Policy not attached, will attach now" -ForegroundColor Gray
+        Write-Host "OK Policy already attached to $UserName" -ForegroundColor Yellow
     }
-} catch {
-    Write-Host "  Could not check attachments" -ForegroundColor Gray
+    else {
+        Write-Host "   Policy not attached, will attach now" -ForegroundColor Gray
+    }
+}
+else {
+    Write-Host "   Could not check attachments" -ForegroundColor Gray
 }
 
 # Attach policy if not already attached
 if (-not $attachmentExists) {
     Write-Host ""
     Write-Host "Attaching policy to $UserName..." -ForegroundColor Yellow
-    try {
-        aws iam attach-user-policy --user-name $UserName --policy-arn $policyArn
-        Write-Host "✓ Policy attached successfully!" -ForegroundColor Green
-    } catch {
-        Write-Host "✗ Failed to attach policy" -ForegroundColor Red
-        Write-Host "  Error: $_" -ForegroundColor Red
-        Remove-Item $tempFile -Force
+
+    $attachResult = aws iam attach-user-policy --user-name $UserName --policy-arn $policyArn 2>&1
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "OK Policy attached successfully!" -ForegroundColor Green
+    }
+    else {
+        Write-Host "ERROR Failed to attach policy" -ForegroundColor Red
+        Write-Host "Error: $attachResult" -ForegroundColor Red
+        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         exit 1
     }
 }
@@ -240,26 +254,30 @@ if (-not $attachmentExists) {
 # Verify attachment
 Write-Host ""
 Write-Host "Verifying policy attachment..." -ForegroundColor Yellow
-try {
-    $attachedPolicies = aws iam list-attached-user-policies --user-name $UserName --output json | ConvertFrom-Json
+
+$verifyJson = aws iam list-attached-user-policies --user-name $UserName --output json 2>&1
+if ($LASTEXITCODE -eq 0) {
+    $attachedPolicies = $verifyJson | ConvertFrom-Json
     $isAttached = $attachedPolicies.AttachedPolicies | Where-Object { $_.PolicyName -eq $PolicyName }
 
     if ($isAttached) {
-        Write-Host "✓ Verified: Policy is attached to $UserName" -ForegroundColor Green
-    } else {
-        Write-Host "✗ Warning: Could not verify policy attachment" -ForegroundColor Yellow
+        Write-Host "OK Verified: Policy is attached to $UserName" -ForegroundColor Green
     }
-} catch {
-    Write-Host "✗ Warning: Could not verify policy attachment" -ForegroundColor Yellow
+    else {
+        Write-Host "WARNING Could not verify policy attachment" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "WARNING Could not verify policy attachment" -ForegroundColor Yellow
 }
 
 # Clean up
-Remove-Item $tempFile -Force
+Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
 
 # Display summary
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "✓ IAM Policy Setup Complete!" -ForegroundColor Green
+Write-Host "SUCCESS IAM Policy Setup Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Policy Name:  $PolicyName" -ForegroundColor White
@@ -267,10 +285,10 @@ Write-Host "Policy ARN:   $policyArn" -ForegroundColor White
 Write-Host "Attached to:  $UserName" -ForegroundColor White
 Write-Host ""
 Write-Host "Granted Permissions:" -ForegroundColor White
-Write-Host "  ✓ S3 bucket management (aws-testing-*)" -ForegroundColor Gray
-Write-Host "  ✓ S3 object operations" -ForegroundColor Gray
-Write-Host "  ✓ DynamoDB table management (aws-testing-*)" -ForegroundColor Gray
-Write-Host "  ✓ DynamoDB item operations" -ForegroundColor Gray
+Write-Host "  - S3 bucket management (aws-testing-*)" -ForegroundColor Gray
+Write-Host "  - S3 object operations" -ForegroundColor Gray
+Write-Host "  - DynamoDB table management (aws-testing-*)" -ForegroundColor Gray
+Write-Host "  - DynamoDB item operations" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Yellow
 Write-Host "  1. Your deploy-user now has all required permissions" -ForegroundColor White
