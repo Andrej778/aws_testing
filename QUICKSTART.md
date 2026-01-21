@@ -1,11 +1,28 @@
 # Quick Start Guide
 
+## ⚠️ IMPORTANT: Use Admin Credentials for This One-Time Setup
+
+The script needs to be run with **admin AWS credentials** (not deploy-user credentials) because deploy-user doesn't have IAM permissions yet. This is a one-time setup.
+
+See [RUN-ONCE-SETUP.md](RUN-ONCE-SETUP.md) for detailed instructions on how to temporarily use admin credentials.
+
 ## One-Command IAM Setup
 
-Run this **once** to set up IAM permissions for deploy-user:
+**Quick method (if you have admin credentials as environment variables):**
 
 ```powershell
+# Set admin credentials temporarily
+$env:AWS_ACCESS_KEY_ID = "your-admin-access-key"
+$env:AWS_SECRET_ACCESS_KEY = "your-admin-secret-key"
+$env:AWS_REGION = "eu-central-1"
+
+# Run the setup script
 .\create-iam-policy.ps1
+
+# Clear environment variables
+Remove-Item Env:\AWS_ACCESS_KEY_ID
+Remove-Item Env:\AWS_SECRET_ACCESS_KEY
+Remove-Item Env:\AWS_REGION
 ```
 
 **That's it!** The script will:
@@ -15,7 +32,7 @@ Run this **once** to set up IAM permissions for deploy-user:
 
 **Requirements:**
 - AWS CLI installed ([Download here](https://aws.amazon.com/cli/))
-- AWS credentials configured with IAM permissions (run `aws configure` if not set up)
+- AWS admin credentials (IAM permissions to create policies and attach them to users)
 
 ## What This Script Does
 
