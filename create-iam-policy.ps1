@@ -171,9 +171,9 @@ $policyJson = @"
 }
 "@
 
-# Save to temp file
+# Save to temp file with ASCII encoding
 $tempFile = [System.IO.Path]::GetTempFileName()
-$policyJson | Out-File -FilePath $tempFile -Encoding utf8 -NoNewline
+$policyJson | Out-File -FilePath $tempFile -Encoding ascii -NoNewline
 Write-Host "OK Policy JSON created" -ForegroundColor Green
 
 # Check if policy already exists
