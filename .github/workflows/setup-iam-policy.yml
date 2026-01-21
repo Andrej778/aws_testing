@@ -1,0 +1,270 @@
+name: Setup IAM Policy
+
+# This workflow creates the TerraformDeployPolicy and attaches it to deploy-user
+# Run this ONCE before the main deployment workflow
+# It requires AWS credentials with IAM permissions (typically admin credentials)
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      confirm:
+        description: 'Type "create-policy" to confirm'
+        required: true
+        default: ''
+
+env:
+  AWS_REGION: eu-central-1
+  POLICY_NAME: TerraformDeployPolicy
+
+jobs:
+  create-iam-policy:
+    name: Create and Attach IAM Policy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "create-policy" ]; then
+            echo "Error: You must type 'create-policy' to confirm"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "AWS Account ID: $ACCOUNT_ID"
+
+      - name: Create IAM Policy JSON
+        run: |
+          cat > policy.json << 'EOF'
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "S3BucketManagement",
+                "Effect": "Allow",
+                "Action": [
+                  "s3:CreateBucket",
+                  "s3:DeleteBucket",
+                  "s3:ListBucket",
+                  "s3:GetBucketLocation",
+                  "s3:GetBucketVersioning",
+                  "s3:PutBucketVersioning",
+                  "s3:GetBucketPublicAccessBlock",
+                  "s3:PutBucketPublicAccessBlock",
+                  "s3:GetEncryptionConfiguration",
+                  "s3:PutEncryptionConfiguration",
+                  "s3:GetBucketAcl",
+                  "s3:PutBucketAcl",
+                  "s3:GetBucketCORS",
+                  "s3:PutBucketCORS",
+                  "s3:GetBucketPolicy",
+                  "s3:PutBucketPolicy",
+                  "s3:DeleteBucketPolicy",
+                  "s3:GetBucketTagging",
+                  "s3:PutBucketTagging",
+                  "s3:GetBucketLogging",
+                  "s3:PutBucketLogging",
+                  "s3:GetBucketWebsite",
+                  "s3:PutBucketWebsite",
+                  "s3:GetBucketNotification",
+                  "s3:PutBucketNotification",
+                  "s3:GetLifecycleConfiguration",
+                  "s3:PutLifecycleConfiguration",
+                  "s3:GetReplicationConfiguration",
+                  "s3:PutReplicationConfiguration"
+                ],
+                "Resource": [
+                  "arn:aws:s3:::aws-testing-*"
+                ]
+              },
+              {
+                "Sid": "S3ObjectManagement",
+                "Effect": "Allow",
+                "Action": [
+                  "s3:PutObject",
+                  "s3:GetObject",
+                  "s3:GetObjectVersion",
+                  "s3:DeleteObject",
+                  "s3:DeleteObjectVersion",
+                  "s3:ListBucket",
+                  "s3:ListBucketVersions",
+                  "s3:GetObjectAcl",
+                  "s3:PutObjectAcl",
+                  "s3:GetObjectTagging",
+                  "s3:PutObjectTagging"
+                ],
+                "Resource": [
+                  "arn:aws:s3:::aws-testing-*/*"
+                ]
+              },
+              {
+                "Sid": "S3ListAllBuckets",
+                "Effect": "Allow",
+                "Action": [
+                  "s3:ListAllMyBuckets",
+                  "s3:GetBucketLocation"
+                ],
+                "Resource": "*"
+              },
+              {
+                "Sid": "DynamoDBTableManagement",
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:CreateTable",
+                  "dynamodb:DeleteTable",
+                  "dynamodb:DescribeTable",
+                  "dynamodb:UpdateTable",
+                  "dynamodb:DescribeContinuousBackups",
+                  "dynamodb:DescribeTimeToLive",
+                  "dynamodb:UpdateTimeToLive",
+                  "dynamodb:ListTagsOfResource",
+                  "dynamodb:TagResource",
+                  "dynamodb:UntagResource",
+                  "dynamodb:DescribeLimits"
+                ],
+                "Resource": [
+                  "arn:aws:dynamodb:*:${{ steps.account.outputs.account_id }}:table/aws-testing-*"
+                ]
+              },
+              {
+                "Sid": "DynamoDBItemManagement",
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:DeleteItem",
+                  "dynamodb:Scan",
+                  "dynamodb:Query",
+                  "dynamodb:BatchGetItem",
+                  "dynamodb:BatchWriteItem"
+                ],
+                "Resource": [
+                  "arn:aws:dynamodb:*:${{ steps.account.outputs.account_id }}:table/aws-testing-*"
+                ]
+              },
+              {
+                "Sid": "DynamoDBListTables",
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:ListTables"
+                ],
+                "Resource": "*"
+              }
+            ]
+          }
+          EOF
+
+          echo "Policy JSON created:"
+          cat policy.json
+
+      - name: Check if policy exists
+        id: check_policy
+        run: |
+          if aws iam get-policy --policy-arn arn:aws:iam::${{ steps.account.outputs.account_id }}:policy/${{ env.POLICY_NAME }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Policy already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Policy does not exist"
+          fi
+        continue-on-error: true
+
+      - name: Create IAM Policy
+        if: steps.check_policy.outputs.exists != 'true'
+        id: create_policy
+        run: |
+          POLICY_ARN=$(aws iam create-policy \
+            --policy-name ${{ env.POLICY_NAME }} \
+            --description "Comprehensive policy for Terraform to manage aws-testing project resources" \
+            --policy-document file://policy.json \
+            --tags Key=Name,Value="Terraform Deploy Policy" Key=Project,Value=aws-testing Key=ManagedBy,Value=GitHub-Actions \
+            --query 'Policy.Arn' \
+            --output text)
+
+          echo "policy_arn=$POLICY_ARN" >> $GITHUB_OUTPUT
+          echo "Policy created: $POLICY_ARN"
+
+      - name: Get existing policy ARN
+        if: steps.check_policy.outputs.exists == 'true'
+        id: get_existing_policy
+        run: |
+          POLICY_ARN=$(aws iam get-policy \
+            --policy-arn arn:aws:iam::${{ steps.account.outputs.account_id }}:policy/${{ env.POLICY_NAME }} \
+            --query 'Policy.Arn' \
+            --output text)
+
+          echo "policy_arn=$POLICY_ARN" >> $GITHUB_OUTPUT
+          echo "Existing policy: $POLICY_ARN"
+
+      - name: Check if policy is attached to deploy-user
+        id: check_attachment
+        run: |
+          POLICY_ARN="${{ steps.create_policy.outputs.policy_arn || steps.get_existing_policy.outputs.policy_arn }}"
+
+          if aws iam list-attached-user-policies --user-name deploy-user | grep -q "${{ env.POLICY_NAME }}"; then
+            echo "attached=true" >> $GITHUB_OUTPUT
+            echo "Policy already attached to deploy-user"
+          else
+            echo "attached=false" >> $GITHUB_OUTPUT
+            echo "Policy not attached to deploy-user"
+          fi
+        continue-on-error: true
+
+      - name: Attach policy to deploy-user
+        if: steps.check_attachment.outputs.attached != 'true'
+        run: |
+          POLICY_ARN="${{ steps.create_policy.outputs.policy_arn || steps.get_existing_policy.outputs.policy_arn }}"
+
+          aws iam attach-user-policy \
+            --user-name deploy-user \
+            --policy-arn "$POLICY_ARN"
+
+          echo "Policy attached to deploy-user"
+
+      - name: Verify attachment
+        run: |
+          echo "Verifying policy attachment..."
+          aws iam list-attached-user-policies --user-name deploy-user
+
+          echo ""
+          echo "✓ IAM Policy Setup Complete!"
+          echo ""
+          echo "Policy: ${{ env.POLICY_NAME }}"
+          echo "ARN: ${{ steps.create_policy.outputs.policy_arn || steps.get_existing_policy.outputs.policy_arn }}"
+          echo "Attached to: deploy-user"
+          echo ""
+          echo "Next steps:"
+          echo "1. Push changes to trigger the main terraform-deploy workflow"
+          echo "2. Or manually trigger the terraform-deploy workflow"
+
+      - name: Create summary
+        run: |
+          echo "## ✓ IAM Policy Setup Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Policy Name:** ${{ env.POLICY_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Policy ARN:** ${{ steps.create_policy.outputs.policy_arn || steps.get_existing_policy.outputs.policy_arn }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Attached to:** deploy-user" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Granted Permissions" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ S3 bucket management (aws-testing-*)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ S3 object operations" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ DynamoDB table management (aws-testing-*)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ DynamoDB item operations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Push changes to main branch to trigger deployment" >> $GITHUB_STEP_SUMMARY
+          echo "2. Or manually run the terraform-deploy workflow" >> $GITHUB_STEP_SUMMARY
