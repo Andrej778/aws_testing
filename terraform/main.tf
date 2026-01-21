@@ -8,15 +8,14 @@ terraform {
     }
   }
 
-  # Temporarily disabled - backend bucket doesn't exist yet
-  # Will be enabled after initial deployment creates the backend infrastructure
-  # backend "s3" {
-  #   bucket         = "aws-testing-terraform-state"
-  #   key            = "aws_testing/terraform.tfstate"
-  #   region         = "eu-central-1"
-  #   encrypt        = true
-  #   dynamodb_table = "aws-testing-terraform-locks"
-  # }
+  # S3 backend for remote state storage with DynamoDB locking
+  backend "s3" {
+    bucket         = "aws-testing-terraform-state"
+    key            = "aws_testing/terraform.tfstate"
+    region         = "eu-central-1"
+    encrypt        = true
+    dynamodb_table = "aws-testing-terraform-locks"
+  }
 }
 
 provider "aws" {
