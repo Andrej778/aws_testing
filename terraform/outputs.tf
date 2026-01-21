@@ -32,3 +32,8 @@ output "dynamodb_table_arn" {
   description = "ARN of the DynamoDB state lock table"
   value       = aws_dynamodb_table.terraform_locks.arn
 }
+
+output "backend_bucket_region" {
+  description = "Region of the Terraform state bucket"
+  value       = aws_s3_bucket.terraform_state.region
+}
