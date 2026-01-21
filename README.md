@@ -29,7 +29,52 @@ aws_testing/
 
 ## Getting Started
 
-### 1. Set up Remote State Backend (First-time setup)
+### 1. Set up IAM Permissions (First-time setup - REQUIRED)
+
+Before deploying any infrastructure, you need to set up IAM permissions for the `deploy-user`.
+
+#### Option A: Using GitHub Actions (Recommended - No Manual Steps)
+
+1. **Push this code to your repository**
+2. **Go to GitHub Actions** in your repository
+3. **Run the "Setup IAM Policy" workflow**:
+   - Click on "Actions" tab
+   - Select "Setup IAM Policy" workflow
+   - Click "Run workflow"
+   - Type `create-policy` in the confirmation field
+   - Click "Run workflow"
+
+This will automatically create the `TerraformDeployPolicy` and attach it to `deploy-user`.
+
+> **Note:** The AWS credentials in GitHub Secrets must have IAM permissions (CreatePolicy, AttachUserPolicy). These are typically admin-level credentials.
+
+#### Option B: Using Terraform Locally
+
+If you prefer to run this locally:
+
+```bash
+cd d:\GIT_REPOSITORIES\aws_testing
+terraform init
+terraform apply setup-iam-policy.tf
+```
+
+> **Note:** You need to use AWS credentials with IAM permissions to run this.
+
+#### Option C: Manual Setup via AWS Console
+
+See [SETUP-IAM.md](SETUP-IAM.md) for detailed manual setup instructions.
+
+#### Verify IAM Setup
+
+After running the setup, verify the policy was attached:
+
+```bash
+aws iam list-attached-user-policies --user-name deploy-user
+```
+
+You should see `TerraformDeployPolicy` in the list.
+
+### 2. Set up Remote State Backend (First-time setup)
 
 This repository uses S3 for remote state storage with DynamoDB for state locking. Before using the main Terraform configuration, you need to set up the backend infrastructure.
 
