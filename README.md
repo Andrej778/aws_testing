@@ -22,8 +22,6 @@ aws_testing/
 │   └── workflows/
 │       ├── terraform-deploy.yml   # CI/CD deployment workflow
 │       └── terraform-destroy.yml  # Manual destroy workflow
-├── deploy.ps1                      # PowerShell deployment script (Windows)
-├── Makefile                        # Build/deployment commands (Linux/Mac)
 └── README.md                       # This file
 ```
 
@@ -33,132 +31,39 @@ aws_testing/
 
 Before deploying any infrastructure, you need to set up IAM permissions for the `deploy-user`.
 
-**Manual Setup via AWS Console:**
+Create an IAM policy named `TerraformDeployPolicy` with the following permissions and attach it to your `deploy-user`:
 
-See [SETUP-IAM.md](SETUP-IAM.md) for detailed instructions on creating and attaching the required IAM policy manually.
+- **S3 Permissions**: `s3:CreateBucket`, `s3:DeleteBucket`, `s3:GetBucket*`, `s3:PutBucket*`, `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`
+- **DynamoDB Permissions**: `dynamodb:CreateTable`, `dynamodb:DeleteTable`, `dynamodb:DescribeTable`, `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem`, `dynamodb:UpdateItem`, `dynamodb:TagResource`
+- **Resource Scope**: All permissions scoped to `arn:aws:s3:::aws-testing-*` and `arn:aws:dynamodb:*:*:table/aws-testing-*`
 
-### 2. Set up Remote State Backend (First-time setup)
+### 2. Set up GitHub Secrets
 
-This repository uses S3 for remote state storage with DynamoDB for state locking. Before using the main Terraform configuration, you need to set up the backend infrastructure.
+Add your AWS credentials to GitHub repository secrets:
+1. Go to repository Settings → Secrets and variables → Actions
+2. Add `AWS_ACCESS_KEY_ID` with your deploy-user access key
+3. Add `AWS_SECRET_ACCESS_KEY` with your deploy-user secret key
 
-**Step 1: Comment out the backend block temporarily**
+### 3. Deploy via GitHub Actions
 
-In `terraform/main.tf`, comment out lines 11-17 (the backend "s3" block) for the initial setup:
-
-```hcl
-# backend "s3" {
-#   bucket         = "aws-testing-terraform-state"
-#   key            = "aws_testing/terraform.tfstate"
-#   region         = "eu-central-1"
-#   encrypt        = true
-#   dynamodb_table = "aws-testing-terraform-locks"
-# }
-```
-
-**Step 2: Create the backend infrastructure**
+Push your code to the `main` branch to trigger automatic deployment:
 
 ```bash
-cd terraform
-terraform init
-terraform apply -target=aws_s3_bucket.terraform_state -target=aws_dynamodb_table.terraform_locks
+git add .
+git commit -m "Deploy infrastructure"
+git push origin main
 ```
 
-This creates:
-- S3 bucket: `aws-testing-terraform-state` (with versioning and encryption)
-- DynamoDB table: `aws-testing-terraform-locks` (for state locking)
+The GitHub Actions workflow will automatically:
+1. Initialize Terraform
+2. Validate configuration
+3. Run security scans (checkov, tflint)
+4. Plan changes
+5. Apply infrastructure changes
 
-**Step 3: Enable the backend and migrate state**
+Monitor the deployment in the **Actions** tab of your GitHub repository.
 
-Uncomment the backend block in `terraform/main.tf`, then run:
-
-```bash
-terraform init -migrate-state
-```
-
-Type `yes` when prompted to migrate your local state to S3.
-
-**Step 4: Verify backend setup**
-
-```bash
-aws s3 ls s3://aws-testing-terraform-state/aws_testing/
-```
-
-You should see `terraform.tfstate` in the bucket.
-
-> **Note**: The backend resources have `prevent_destroy = true` lifecycle rules to prevent accidental deletion.
-
-### 2. Set up your variables
-
-Copy the example variables file and update it with your values:
-
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Edit `terraform.tfvars` with your desired AWS region, project name, and environment.
-
-### 3. Initialize Terraform
-
-**Windows (PowerShell):**
-```powershell
-.\deploy.ps1 -Command init
-```
-
-**Linux/Mac:**
-```bash
-make init
-```
-
-### 4. Plan your deployment
-
-**Windows (PowerShell):**
-```powershell
-.\deploy.ps1 -Command plan
-```
-
-**Linux/Mac:**
-```bash
-make plan
-```
-
-### 5. Apply the configuration
-
-**Windows (PowerShell):**
-```powershell
-.\deploy.ps1 -Command apply
-```
-
-**Linux/Mac:**
-```bash
-make apply
-```
-
-## Available Commands
-
-### Windows (PowerShell)
-
-```powershell
-.\deploy.ps1 -Command init       # Initialize Terraform
-.\deploy.ps1 -Command plan       # Show plan
-.\deploy.ps1 -Command apply      # Apply configuration
-.\deploy.ps1 -Command destroy    # Destroy resources
-.\deploy.ps1 -Command fmt        # Format files
-.\deploy.ps1 -Command validate   # Validate configuration
-.\deploy.ps1 -Command clean      # Clean Terraform cache
-```
-
-### Linux/Mac (Make)
-
-```bash
-make init       # Initialize Terraform
-make plan       # Show plan
-make apply      # Apply configuration
-make destroy    # Destroy resources
-make fmt        # Format files
-make validate   # Validate configuration
-make clean      # Clean Terraform cache
-```
+> **Note**: The S3 backend is currently disabled. After the first successful deployment creates the backend infrastructure, you can enable it by uncommenting the backend block in `terraform/main.tf` and pushing again.
 
 ## AWS Resources
 
@@ -194,72 +99,25 @@ This repository is designed as a learning tool for:
 ## Important Notes
 
 - **Never commit `terraform.tfvars`** - It contains sensitive information
-- Always run `terraform plan` before `terraform apply`
+- All deployments are handled via GitHub Actions
 - Use appropriate AWS IAM credentials with minimal required permissions
 - Test in a dev environment before deploying to production
 - Review the Terraform documentation: https://www.terraform.io/docs/
 
-## CI/CD Pipeline (GitHub Actions)
+## GitHub Actions Workflows
 
-This repository includes automated GitHub Actions workflows for continuous deployment.
+### 1. Terraform Deploy Workflow
 
-### Setting Up GitHub Actions
+**Trigger**: Automatic on push to `main` branch or pull requests
 
-1. **Add AWS Credentials to GitHub Secrets:**
+**What it does**:
+- Validates Terraform configuration
+- Runs security scans (checkov, tflint)
+- Creates execution plan
+- Applies changes (on main push only)
+- Comments plan output on pull requests
 
-   Go to your repository → Settings → Secrets and variables → Actions → New repository secret
-
-   Add the following secrets:
-   - `AWS_ACCESS_KEY_ID` - Your AWS access key
-   - `AWS_SECRET_ACCESS_KEY` - Your AWS secret key
-
-   ⚠️ **Security Best Practices:**
-   - Use IAM user credentials, not root account
-   - Create an IAM policy with minimal required permissions
-   - Rotate credentials regularly
-
-2. **IAM Policy Example:**
-
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": [
-           "s3:*",
-           "terraform:*"
-         ],
-         "Resource": "*"
-       }
-     ]
-   }
-   ```
-
-### Workflows
-
-#### 1. Terraform Deploy Workflow (`.github/workflows/terraform-deploy.yml`)
-
-Automatically runs on:
-- **Push to main** - Runs `terraform plan` and applies on success
-- **Pull requests to main** - Runs `terraform plan` and comments results
-
-Features:
-- Terraform format validation
-- Code quality checks with tflint
-- Security scanning with Checkov
-- Automatic comments on pull requests with plan output
-
-#### 2. Terraform Destroy Workflow (`.github/workflows/terraform-destroy.yml`)
-
-Manual workflow dispatch (run manually from Actions tab)
-- Safely destroys resources
-- Requires confirmation
-- Supports multiple environments
-
-### Example Workflow Trigger
-
-Once set up, simply push to main:
+**To deploy**: Simply push to main branch
 
 ```bash
 git add terraform/
@@ -267,31 +125,20 @@ git commit -m "Add new AWS resources"
 git push origin main
 ```
 
-The pipeline will:
-1. ✓ Format check
-2. ✓ Initialize Terraform
-3. ✓ Validate configuration
-4. ✓ Run security scans
-5. ✓ Plan changes
-6. ✓ Apply changes (on main push only)
+### 2. Terraform Destroy Workflow
 
-## Cleanup
+**Trigger**: Manual (via Actions tab)
 
-To destroy all resources locally:
+**What it does**:
+- Safely destroys all infrastructure
+- Requires environment selection (dev/staging/prod)
 
-**Windows:**
-```powershell
-.\deploy.ps1 -Command destroy
-.\deploy.ps1 -Command clean
-```
-
-**Linux/Mac:**
-```bash
-make destroy
-make clean
-```
-
-Or use GitHub Actions workflow (see CI/CD Pipeline section above).
+**To destroy resources**:
+1. Go to Actions tab in GitHub
+2. Select "Terraform Destroy" workflow
+3. Click "Run workflow"
+4. Choose environment
+5. Confirm destruction
 
 ## Resources
 
