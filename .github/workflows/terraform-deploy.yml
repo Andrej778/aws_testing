@@ -57,6 +57,16 @@ jobs:
           cd terraform
           terraform init
 
+      - name: Bootstrap IAM Policy
+        id: bootstrap
+        run: |
+          cd terraform
+          # Try to apply the IAM bootstrap policy first
+          # This may fail if deploy-user doesn't have IAM permissions yet
+          # If it fails, the policy needs to be created manually
+          terraform apply -target=aws_iam_policy.terraform_deploy -target=aws_iam_user_policy_attachment.deploy_user_attach -auto-approve || echo "IAM bootstrap skipped - policy may already exist or user lacks IAM permissions"
+        continue-on-error: true
+
       - name: Terraform Validate
         id: validate
         run: |
