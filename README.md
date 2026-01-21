@@ -2,6 +2,8 @@
 
 A learning repository for AWS deployment using Terraform.
 
+> **🚀 QUICK START:** Run `.\create-iam-policy.ps1` to set up IAM permissions in one command. See [QUICKSTART.md](QUICKSTART.md) for details.
+
 ## Prerequisites
 
 - [Terraform](https://www.terraform.io/downloads.html) (>= 1.0)
@@ -33,35 +35,35 @@ aws_testing/
 
 Before deploying any infrastructure, you need to set up IAM permissions for the `deploy-user`.
 
-#### Option A: Using GitHub Actions (Recommended - No Manual Steps)
+#### Quick Method: PowerShell Script (Recommended - One Command!)
 
-1. **Push this code to your repository**
-2. **Go to GitHub Actions** in your repository
-3. **Run the "Setup IAM Policy" workflow**:
-   - Click on "Actions" tab
-   - Select "Setup IAM Policy" workflow
-   - Click "Run workflow"
-   - Type `create-policy` in the confirmation field
-   - Click "Run workflow"
+Run this **once** in the repository root:
 
-This will automatically create the `TerraformDeployPolicy` and attach it to `deploy-user`.
+```powershell
+.\create-iam-policy.ps1
+```
 
-> **Note:** The AWS credentials in GitHub Secrets must have IAM permissions (CreatePolicy, AttachUserPolicy). These are typically admin-level credentials.
+This script will:
+- ✓ Create the `TerraformDeployPolicy` with all necessary permissions
+- ✓ Attach it to `deploy-user`
+- ✓ Verify the setup
 
-#### Option B: Using Terraform Locally
+**Requirements:** AWS CLI installed and configured with IAM permissions (admin credentials).
 
-If you prefer to run this locally:
+See [QUICKSTART.md](QUICKSTART.md) for details and troubleshooting.
 
+#### Alternative Methods
+
+If you can't use the PowerShell script:
+
+**Option A: Using Terraform Locally**
 ```bash
 cd d:\GIT_REPOSITORIES\aws_testing
 terraform init
 terraform apply setup-iam-policy.tf
 ```
 
-> **Note:** You need to use AWS credentials with IAM permissions to run this.
-
-#### Option C: Manual Setup via AWS Console
-
+**Option B: Manual Setup via AWS Console**
 See [SETUP-IAM.md](SETUP-IAM.md) for detailed manual setup instructions.
 
 #### Verify IAM Setup
