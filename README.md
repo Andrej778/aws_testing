@@ -2,8 +2,6 @@
 
 A learning repository for AWS deployment using Terraform.
 
-> **🚀 QUICK START:** Run `.\create-iam-policy.ps1` to set up IAM permissions in one command. See [QUICKSTART.md](QUICKSTART.md) for details.
-
 ## Prerequisites
 
 - [Terraform](https://www.terraform.io/downloads.html) (>= 1.0)
@@ -35,46 +33,9 @@ aws_testing/
 
 Before deploying any infrastructure, you need to set up IAM permissions for the `deploy-user`.
 
-#### Quick Method: PowerShell Script (Recommended - One Command!)
+**Manual Setup via AWS Console:**
 
-Run this **once** in the repository root:
-
-```powershell
-.\create-iam-policy.ps1
-```
-
-This script will:
-- ✓ Create the `TerraformDeployPolicy` with all necessary permissions
-- ✓ Attach it to `deploy-user`
-- ✓ Verify the setup
-
-**Requirements:** AWS CLI installed and configured with IAM permissions (admin credentials).
-
-See [QUICKSTART.md](QUICKSTART.md) for details and troubleshooting.
-
-#### Alternative Methods
-
-If you can't use the PowerShell script:
-
-**Option A: Using Terraform Locally**
-```bash
-cd d:\GIT_REPOSITORIES\aws_testing
-terraform init
-terraform apply setup-iam-policy.tf
-```
-
-**Option B: Manual Setup via AWS Console**
-See [SETUP-IAM.md](SETUP-IAM.md) for detailed manual setup instructions.
-
-#### Verify IAM Setup
-
-After running the setup, verify the policy was attached:
-
-```bash
-aws iam list-attached-user-policies --user-name deploy-user
-```
-
-You should see `TerraformDeployPolicy` in the list.
+See [SETUP-IAM.md](SETUP-IAM.md) for detailed instructions on creating and attaching the required IAM policy manually.
 
 ### 2. Set up Remote State Backend (First-time setup)
 
