@@ -139,6 +139,8 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
           "bedrock:ListGuardrails",
           "bedrock:TagGuardrail",
           "bedrock:UntagGuardrail",
+          "bedrock:TagResource",
+          "bedrock:UntagResource",
           "bedrock:CreateGuardrailVersion",
           "bedrock:DeleteGuardrailVersion",
           "bedrock:ListGuardrailVersions",
@@ -297,9 +299,11 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
           "logs:TagResource",
           "logs:UntagResource",
         ]
+        # The :* suffix is required — CloudWatch Logs evaluates resource ARNs
+        # with a :log-stream: component appended, so the pattern must end in :*
         Resource = [
-          "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${var.chatbot_project_name}-*",
-          "arn:aws:logs:${var.aws_region}:*:log-group:/aws/api-gateway/${var.chatbot_project_name}-*",
+          "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${var.chatbot_project_name}-*:*",
+          "arn:aws:logs:${var.aws_region}:*:log-group:/aws/api-gateway/${var.chatbot_project_name}-*:*",
         ]
       },
 
