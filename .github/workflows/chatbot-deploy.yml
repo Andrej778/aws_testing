@@ -128,16 +128,17 @@ jobs:
           terraform init
 
       # ── Plan ──────────────────────────────────────────────────────────────
+      # continue-on-error lets subsequent steps run even when terraform exits
+      # with 1 (error) or 2 (changes). steps.plan.outputs.exitcode is set by
+      # the setup-terraform wrapper and holds the real terraform exit code.
+      # Do NOT use PIPESTATUS — the wrapper exits 0 to keep the step green,
+      # making PIPESTATUS[0] always 0 regardless of the plan result.
       - name: Terraform plan
         id: plan
+        continue-on-error: true
         run: |
           cd ${{ env.TF_WORKING_DIR }}
-          set +e
           terraform plan -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan_output.txt
-          TF_EXIT=${PIPESTATUS[0]}
-          echo "exit_code=${TF_EXIT}" >> $GITHUB_OUTPUT
-          # 0 = no changes, 1 = error, 2 = changes present — all valid here
-          exit 0
         env:
           TF_VAR_model_arn: ${{ vars.CHATBOT_MODEL_ARN }}
           TF_VAR_cors_allowed_origin: ${{ vars.CHATBOT_CORS_ORIGIN }}
@@ -150,7 +151,7 @@ jobs:
           script: |
             const fs = require('fs');
             const plan  = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
-            const code  = '${{ steps.plan.outputs.exit_code }}';
+            const code  = '${{ steps.plan.outputs.exitcode }}';
             const label = code === '0' ? '✅ No changes'
                         : code === '1' ? '❌ Plan errored'
                         :                '📋 Changes pending';
@@ -180,7 +181,7 @@ jobs:
 
       # ── Hard-fail if plan errored (exit 1) ────────────────────────────────
       - name: Fail if plan errored
-        if: steps.plan.outputs.exit_code == '1'
+        if: steps.plan.outputs.exitcode == '1'
         run: |
           echo "terraform plan exited with error. See plan output above."
           exit 1
@@ -188,11 +189,11 @@ jobs:
       # ── Apply — only on push to main, immediately after the plan above ────
       # Using the same tfplan file produced moments ago in this same job/runner,
       # so provider binaries and state are identical — no hash mismatch possible.
-      # exit_code == '2' means plan succeeded WITH changes (detailed-exitcode).
-      # Checking for '2' explicitly (not '!= 1') prevents apply from running if
-      # the output variable is empty/unset, which would make '!= 1' evaluate true.
+      # exitcode == '2' means plan succeeded WITH changes (detailed-exitcode).
+      # steps.plan.outputs.exitcode comes from the setup-terraform wrapper —
+      # the reliable source, unlike PIPESTATUS which sees the wrapper's exit 0.
       - name: Terraform apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code == '2'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exitcode == '2'
         run: |
           cd ${{ env.TF_WORKING_DIR }}
           terraform apply -no-color tfplan
@@ -201,7 +202,7 @@ jobs:
           TF_VAR_cors_allowed_origin: ${{ vars.CHATBOT_CORS_ORIGIN }}
 
       - name: Show outputs
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code == '2'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exitcode == '2'
         run: |
           cd ${{ env.TF_WORKING_DIR }}
           terraform output
