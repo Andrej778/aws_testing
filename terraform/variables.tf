@@ -10,6 +10,18 @@ variable "project_name" {
   default     = "aws-testing"
 }
 
+variable "deploy_user_name" {
+  description = "IAM user name used by CI/CD pipelines (GitHub Actions)"
+  type        = string
+  default     = "deploy-user"
+}
+
+variable "chatbot_project_name" {
+  description = "project_name value used in chatbot/terraform — must match to scope IAM policy correctly"
+  type        = string
+  default     = "bank-chatbot"
+}
+
 variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
