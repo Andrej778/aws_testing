@@ -77,41 +77,50 @@ jobs:
         id: plan
         run: |
           cd terraform
-          terraform plan -no-color -out=tfplan
-        continue-on-error: true
+          set +e
+          terraform plan -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan_output.txt
+          TF_EXIT=${PIPESTATUS[0]}
+          echo "exit_code=${TF_EXIT}" >> $GITHUB_OUTPUT
+          exit 0
+
+      - name: Print plan output
+        if: always()
+        run: cat terraform/plan_output.txt
 
       - name: Comment Plan on Pull Request
-        if: github.event_name == 'pull_request' && (success() || failure())
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
-        env:
-          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
         with:
           script: |
-            const plan = process.env.PLAN;
-            const comment = `## Terraform Plan
-
-            \`\`\`terraform
-            ${plan}
-            \`\`\`
-
-            *Plan generated at: ${new Date().toLocaleString()}*`;
-
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/plan_output.txt', 'utf8');
+            const code = '${{ steps.plan.outputs.exit_code }}';
+            const label = code === '0' ? '✅ No changes'
+                        : code === '1' ? '❌ Plan errored'
+                        :                '📋 Changes pending';
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment.substring(0, 65536)
+              body: `## Root Terraform Plan ${label}\n\n<details><summary>Show plan output</summary>\n\n\`\`\`hcl\n${plan.substring(0, 60000)}\n\`\`\`\n</details>\n\n*Commit \`${{ github.sha }}\`*`
             });
 
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exit_code == '1'
+        run: |
+          echo "terraform plan exited with error. See plan output above."
+          exit 1
+
+      # exit_code == '2' means plan succeeded with changes (see chatbot-deploy.yml for rationale)
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code == '2'
         id: apply
         run: |
           cd terraform
           terraform apply -no-color tfplan
 
       - name: Terraform Output
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code == '2'
         run: |
           cd terraform
           terraform output

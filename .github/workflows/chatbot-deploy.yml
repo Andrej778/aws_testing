@@ -11,6 +11,7 @@ on:
     paths:
       - 'chatbot/**'
       - '.github/workflows/chatbot-deploy.yml'
+  workflow_dispatch: {}
 
 env:
   AWS_REGION: eu-central-1
@@ -171,6 +172,11 @@ jobs:
               repo: context.repo.repo,
               body: body
             });
+
+      # ── Always print plan output to the job log ──────────────────────────
+      - name: Print plan output
+        if: always()
+        run: cat ${{ env.TF_WORKING_DIR }}/plan_output.txt
 
       # ── Hard-fail if plan errored (exit 1) ────────────────────────────────
       - name: Fail if plan errored
