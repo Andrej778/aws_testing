@@ -1,17 +1,14 @@
 # ---------------------------------------------------------------------------
 # IAM policy for the CI/CD deploy-user to plan and apply chatbot/terraform/.
 #
-# IMPORTANT — this file must be applied using admin credentials, NOT the
-# deploy-user itself (which lacks iam:CreatePolicy). Run once:
+# IMPORTANT — must be applied with admin credentials (deploy-user lacks
+# iam:CreatePolicy). Run once after any change to this file:
 #
 #   cd terraform/
 #   AWS_PROFILE=<admin-profile> terraform apply \
 #     -target=aws_iam_policy.chatbot_deploy_policy \
 #     -target=aws_iam_user_policy_attachment.chatbot_deploy_policy_attachment \
 #     -auto-approve
-#
-# After that, the GitHub Actions chatbot-deploy.yml workflow can deploy
-# the chatbot module without further manual intervention.
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_policy" "chatbot_deploy_policy" {
@@ -22,221 +19,91 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
     Version = "2012-10-17"
     Statement = [
 
-      # ── S3: chatbot document bucket ──────────────────────────────────────
+      # S3: chatbot buckets + Terraform remote state
       {
-        Sid    = "S3ChatbotBuckets"
+        Sid    = "S3"
         Effect = "Allow"
-        Action = [
-          "s3:CreateBucket",
-          "s3:DeleteBucket",
-          "s3:GetBucketLocation",
-          "s3:GetBucketVersioning",
-          "s3:PutBucketVersioning",
-          "s3:GetEncryptionConfiguration",
-          "s3:PutEncryptionConfiguration",
-          "s3:GetBucketPublicAccessBlock",
-          "s3:PutBucketPublicAccessBlock",
-          "s3:GetLifecycleConfiguration",
-          "s3:PutLifecycleConfiguration",
-          "s3:GetBucketNotification",
-          "s3:PutBucketNotification",
-          "s3:GetBucketTagging",
-          "s3:PutBucketTagging",
-          "s3:DeleteBucketTagging",
-          "s3:ListBucket",
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-        ]
+        Action = ["s3:*"]
         Resource = [
           "arn:aws:s3:::${var.chatbot_project_name}-*",
           "arn:aws:s3:::${var.chatbot_project_name}-*/*",
-        ]
-      },
-
-      # ── S3: Terraform remote state (read/write tfstate, lock via DynamoDB) ─
-      {
-        Sid    = "S3TerraformState"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:ListBucket",
-        ]
-        Resource = [
           "arn:aws:s3:::aws-testing-terraform-state",
           "arn:aws:s3:::aws-testing-terraform-state/chatbot/*",
         ]
       },
 
-      # ── DynamoDB: Terraform state locking ────────────────────────────────
+      # DynamoDB: Terraform state lock + chatbot conversation log
       {
-        Sid    = "DynamoDBTerraformLock"
+        Sid    = "DynamoDB"
         Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:DeleteItem",
+        Action = ["dynamodb:*"]
+        Resource = [
+          "arn:aws:dynamodb:${var.aws_region}:*:table/aws-testing-terraform-locks",
+          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.chatbot_project_name}-*",
         ]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:*:table/aws-testing-terraform-locks"
       },
 
-      # ── RDS: Aurora PostgreSQL vector store ──────────────────────────────
+      # Bedrock: Knowledge Base, Data Source, Guardrail
       {
-        Sid    = "RDSChatbot"
-        Effect = "Allow"
-        Action = [
-          "rds:CreateDBCluster",
-          "rds:DeleteDBCluster",
-          "rds:DescribeDBClusters",
-          "rds:ModifyDBCluster",
-          "rds:RestoreDBClusterFromSnapshot",
-          "rds:CreateDBInstance",
-          "rds:DeleteDBInstance",
-          "rds:DescribeDBInstances",
-          "rds:ModifyDBInstance",
-          "rds:CreateDBSubnetGroup",
-          "rds:DeleteDBSubnetGroup",
-          "rds:DescribeDBSubnetGroups",
-          "rds:ModifyDBSubnetGroup",
-          "rds:AddTagsToResource",
-          "rds:RemoveTagsFromResource",
-          "rds:ListTagsForResource",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "RDSDataAPI"
-        Effect = "Allow"
-        Action = ["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"]
+        Sid      = "Bedrock"
+        Effect   = "Allow"
+        Action   = ["bedrock:*"]
         Resource = "*"
       },
 
-      # ── Secrets Manager: DB credentials for RDS Data API ────────────────
+      # RDS: Aurora PostgreSQL vector store + Data API for schema init
       {
-        Sid    = "SecretsManagerChatbot"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:CreateSecret",
-          "secretsmanager:DeleteSecret",
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:PutSecretValue",
-          "secretsmanager:UpdateSecret",
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:TagResource",
-          "secretsmanager:UntagResource",
-          "secretsmanager:ListSecretVersionIds",
-          "secretsmanager:RestoreSecret",
-        ]
+        Sid      = "RDS"
+        Effect   = "Allow"
+        Action   = ["rds:*", "rds-data:*"]
+        Resource = "*"
+      },
+
+      # Secrets Manager: Aurora DB credentials
+      {
+        Sid      = "SecretsManager"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:*"]
         Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.chatbot_project_name}-*"
       },
 
-      # ── EC2: VPC/subnet/security-group lookups for RDS ───────────────────
+      # EC2: VPC/subnet read + security group management for RDS
       {
-        Sid    = "EC2VPCReadChatbot"
+        Sid    = "EC2"
         Effect = "Allow"
         Action = [
-          "ec2:DescribeVpcs",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeNetworkInterfaces",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "EC2SecurityGroupChatbot"
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateSecurityGroup",
-          "ec2:DeleteSecurityGroup",
-          "ec2:AuthorizeSecurityGroupEgress",
-          "ec2:AuthorizeSecurityGroupIngress",
-          "ec2:RevokeSecurityGroupEgress",
-          "ec2:RevokeSecurityGroupIngress",
+          "ec2:Describe*",
+          "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+          "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
+          "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
           "ec2:CreateTags",
         ]
         Resource = "*"
       },
 
-      # ── Bedrock: Knowledge Base, Data Source, Guardrail ─────────────────
+      # Lambda: chatbot functions
       {
-        Sid    = "BedrockManagement"
+        Sid    = "LambdaFunctions"
         Effect = "Allow"
-        Action = [
-          "bedrock:CreateKnowledgeBase",
-          "bedrock:DeleteKnowledgeBase",
-          "bedrock:GetKnowledgeBase",
-          "bedrock:UpdateKnowledgeBase",
-          "bedrock:ListKnowledgeBases",
-          "bedrock:TagKnowledgeBase",
-          "bedrock:UntagKnowledgeBase",
-          "bedrock:CreateDataSource",
-          "bedrock:DeleteDataSource",
-          "bedrock:GetDataSource",
-          "bedrock:UpdateDataSource",
-          "bedrock:ListDataSources",
-          "bedrock:StartIngestionJob",
-          "bedrock:GetIngestionJob",
-          "bedrock:ListIngestionJobs",
-          "bedrock:CreateGuardrail",
-          "bedrock:DeleteGuardrail",
-          "bedrock:GetGuardrail",
-          "bedrock:UpdateGuardrail",
-          "bedrock:ListGuardrails",
-          "bedrock:TagGuardrail",
-          "bedrock:UntagGuardrail",
-          "bedrock:TagResource",
-          "bedrock:UntagResource",
-          "bedrock:CreateGuardrailVersion",
-          "bedrock:DeleteGuardrailVersion",
-          "bedrock:ListGuardrailVersions",
-          "bedrock:ListTagsForResource",
-        ]
-        Resource = "*"
-      },
-
-      # ── Lambda: chatbot functions ─────────────────────────────────────────
-      {
-        Sid    = "LambdaChatbot"
-        Effect = "Allow"
-        Action = [
-          "lambda:CreateFunction",
-          "lambda:DeleteFunction",
-          "lambda:GetFunction",
-          "lambda:GetFunctionConfiguration",
-          "lambda:UpdateFunctionCode",
-          "lambda:UpdateFunctionConfiguration",
-          "lambda:AddPermission",
-          "lambda:RemovePermission",
-          "lambda:GetPolicy",
-          "lambda:TagResource",
-          "lambda:UntagResource",
-          "lambda:ListTags",
-          "lambda:GetFunctionCodeSigningConfig",
-        ]
+        Action = ["lambda:*"]
         Resource = "arn:aws:lambda:${var.aws_region}:*:function:${var.chatbot_project_name}-*"
       },
       {
-        Sid    = "LambdaEventSourceMapping"
+        Sid    = "LambdaESM"
         Effect = "Allow"
         Action = [
-          "lambda:CreateEventSourceMapping",
-          "lambda:DeleteEventSourceMapping",
-          "lambda:GetEventSourceMapping",
-          "lambda:UpdateEventSourceMapping",
+          "lambda:CreateEventSourceMapping", "lambda:DeleteEventSourceMapping",
+          "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping",
           "lambda:ListEventSourceMappings",
         ]
-        # Event source mappings are account-level resources with no ARN scoping
         Resource = "*"
       },
 
-      # ── API Gateway: REST API + account-level CW logging role ────────────
+      # API Gateway: REST API, usage plan, API key, account CW role, tags
       {
-        Sid    = "APIGatewayManagement"
+        Sid    = "APIGateway"
         Effect = "Allow"
-        Action = ["apigateway:GET", "apigateway:POST", "apigateway:PUT",
-        "apigateway:PATCH", "apigateway:DELETE"]
+        Action = ["apigateway:GET", "apigateway:POST", "apigateway:PUT", "apigateway:PATCH", "apigateway:DELETE"]
         Resource = [
           "arn:aws:apigateway:${var.aws_region}::/restapis",
           "arn:aws:apigateway:${var.aws_region}::/restapis/*",
@@ -244,110 +111,51 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
           "arn:aws:apigateway:${var.aws_region}::/usageplans/*",
           "arn:aws:apigateway:${var.aws_region}::/apikeys",
           "arn:aws:apigateway:${var.aws_region}::/apikeys/*",
-          # Account-level CloudWatch Logs role setting
           "arn:aws:apigateway:${var.aws_region}::/account",
-          # Tagging — CreateRestApi/CreateStage call apigateway:PUT on /tags/*
           "arn:aws:apigateway:${var.aws_region}::/tags/*",
         ]
       },
 
-      # ── IAM: create/manage chatbot service roles only ────────────────────
+      # IAM: chatbot service roles only (kept specific — most sensitive)
       {
-        Sid    = "IAMChatbotRoles"
+        Sid    = "IAMRoles"
         Effect = "Allow"
         Action = [
-          "iam:CreateRole",
-          "iam:DeleteRole",
-          "iam:GetRole",
-          "iam:UpdateRole",
-          "iam:AttachRolePolicy",
-          "iam:DetachRolePolicy",
-          "iam:PutRolePolicy",
-          "iam:DeleteRolePolicy",
-          "iam:GetRolePolicy",
-          "iam:ListRolePolicies",
-          "iam:ListAttachedRolePolicies",
-          "iam:TagRole",
-          "iam:UntagRole",
-          "iam:UpdateAssumeRolePolicy",
-          "iam:ListInstanceProfilesForRole",
+          "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole",
+          "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+          "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
+          "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
+          "iam:TagRole", "iam:UntagRole",
+          "iam:UpdateAssumeRolePolicy", "iam:ListInstanceProfilesForRole",
         ]
         Resource = "arn:aws:iam::*:role/${var.chatbot_project_name}-*"
       },
       {
-        # PassRole lets Terraform hand the chatbot service roles to Lambda,
-        # Bedrock, and API Gateway during resource creation
-        Sid      = "IAMPassRoleChatbot"
+        Sid      = "IAMPassRole"
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = "arn:aws:iam::*:role/${var.chatbot_project_name}-*"
         Condition = {
           StringEquals = {
-            "iam:PassedToService" = [
-              "lambda.amazonaws.com",
-              "bedrock.amazonaws.com",
-              "apigateway.amazonaws.com",
-            ]
+            "iam:PassedToService" = ["lambda.amazonaws.com", "bedrock.amazonaws.com", "apigateway.amazonaws.com"]
           }
         }
       },
 
-      # ── DynamoDB: conversation audit log table ────────────────────────────
+      # SQS: logging queues
       {
-        Sid    = "DynamoDBChatbot"
-        Effect = "Allow"
-        Action = [
-          "dynamodb:CreateTable",
-          "dynamodb:DeleteTable",
-          "dynamodb:DescribeTable",
-          "dynamodb:UpdateTable",
-          "dynamodb:TagResource",
-          "dynamodb:UntagResource",
-          "dynamodb:ListTagsOfResource",
-          "dynamodb:DescribeContinuousBackups",
-          "dynamodb:UpdateContinuousBackups",
-          "dynamodb:DescribeTimeToLive",
-          "dynamodb:UpdateTimeToLive",
-        ]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:*:table/${var.chatbot_project_name}-*"
-      },
-
-      # ── SQS: logging queues ────────────────────────────────────────────────
-      {
-        Sid    = "SQSChatbot"
-        Effect = "Allow"
-        Action = [
-          "sqs:CreateQueue",
-          "sqs:DeleteQueue",
-          "sqs:GetQueueAttributes",
-          "sqs:SetQueueAttributes",
-          "sqs:GetQueueUrl",
-          "sqs:ListQueues",
-          "sqs:TagQueue",
-          "sqs:UntagQueue",
-          "sqs:ListQueueTags",
-        ]
+        Sid      = "SQS"
+        Effect   = "Allow"
+        Action   = ["sqs:*"]
         Resource = "arn:aws:sqs:${var.aws_region}:*:${var.chatbot_project_name}-*"
       },
 
-      # ── CloudWatch Logs: Lambda and API Gateway log groups ────────────────
+      # CloudWatch Logs: Lambda and API Gateway log groups
+      # :* suffix required — AWS evaluates log group ARNs with :log-stream: appended
       {
-        Sid    = "CloudWatchLogsChatbot"
+        Sid    = "CloudWatchLogs"
         Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:DeleteLogGroup",
-          "logs:DescribeLogGroups",
-          "logs:PutRetentionPolicy",
-          "logs:DeleteRetentionPolicy",
-          "logs:TagLogGroup",
-          "logs:UntagLogGroup",
-          "logs:ListTagsForResource",
-          "logs:TagResource",
-          "logs:UntagResource",
-        ]
-        # The :* suffix is required — CloudWatch Logs evaluates resource ARNs
-        # with a :log-stream: component appended, so the pattern must end in :*
+        Action = ["logs:*"]
         Resource = [
           "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${var.chatbot_project_name}-*:*",
           "arn:aws:logs:${var.aws_region}:*:log-group:/aws/api-gateway/${var.chatbot_project_name}-*:*",
