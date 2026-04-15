@@ -182,8 +182,11 @@ jobs:
       # ── Apply — only on push to main, immediately after the plan above ────
       # Using the same tfplan file produced moments ago in this same job/runner,
       # so provider binaries and state are identical — no hash mismatch possible.
+      # exit_code == '2' means plan succeeded WITH changes (detailed-exitcode).
+      # Checking for '2' explicitly (not '!= 1') prevents apply from running if
+      # the output variable is empty/unset, which would make '!= 1' evaluate true.
       - name: Terraform apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code != '1'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code == '2'
         run: |
           cd ${{ env.TF_WORKING_DIR }}
           terraform apply -no-color tfplan
@@ -192,7 +195,7 @@ jobs:
           TF_VAR_cors_allowed_origin: ${{ vars.CHATBOT_CORS_ORIGIN }}
 
       - name: Show outputs
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code != '1'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code == '2'
         run: |
           cd ${{ env.TF_WORKING_DIR }}
           terraform output
