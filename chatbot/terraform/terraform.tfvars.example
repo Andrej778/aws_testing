@@ -1,0 +1,18 @@
+# Copy this file to terraform.tfvars and fill in your values.
+
+aws_region   = "eu-central-1"
+project_name = "bank-chatbot"   # max 22 chars, lowercase, no underscores
+environment  = "dev"
+
+# Optional — leave empty to use the default foundation model ARN.
+# If Claude Sonnet 4.5 is not available in your region, use a cross-region
+# inference profile. First create one in the Bedrock console or via CLI, then
+# paste its ARN here:
+#
+#   model_arn = "arn:aws:bedrock:eu-central-1:123456789012:inference-profile/eu.anthropic.claude-sonnet-4-5-20251001-v1:0"
+model_arn = ""
+
+# Tune these for cost/quality trade-offs
+kb_number_of_results    = 5
+log_retention_days      = 90
+conversation_log_ttl_days = 365
