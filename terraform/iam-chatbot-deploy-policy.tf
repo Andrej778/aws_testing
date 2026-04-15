@@ -201,6 +201,8 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
           "arn:aws:apigateway:${var.aws_region}::/apikeys/*",
           # Account-level CloudWatch Logs role setting
           "arn:aws:apigateway:${var.aws_region}::/account",
+          # Tagging — CreateRestApi/CreateStage call apigateway:PUT on /tags/*
+          "arn:aws:apigateway:${var.aws_region}::/tags/*",
         ]
       },
 
