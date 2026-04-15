@@ -18,7 +18,7 @@ env:
   TF_WORKING_DIR: chatbot/terraform
 
 jobs:
-  # ── Job 1: static checks (no AWS credentials needed) ──────────────────────
+  # ── Job 1: static checks — no AWS credentials needed ──────────────────────
   validate:
     name: Validate
     runs-on: ubuntu-latest
@@ -59,7 +59,7 @@ jobs:
           cd ${{ env.TF_WORKING_DIR }}
           terraform validate
 
-  # ── Job 2: security scan (runs in parallel with validate) ─────────────────
+  # ── Job 2: security scan — runs in parallel with validate ─────────────────
   security:
     name: Security scan
     runs-on: ubuntu-latest
@@ -72,8 +72,8 @@ jobs:
         run: pip install checkov
 
       - name: Run checkov on chatbot/terraform
-        # Skips: CKV_AWS_21 (S3 versioning - already enabled via separate resource)
-        #        CKV2_AWS_61 (S3 lifecycle - already configured)
+        # Skips: CKV_AWS_21 (S3 versioning — already enabled via separate resource)
+        #        CKV2_AWS_61 (S3 lifecycle  — already configured)
         run: |
           checkov -d chatbot/terraform \
             --framework terraform \
@@ -81,15 +81,29 @@ jobs:
             --compact \
             --quiet || true
 
-  # ── Job 3: plan (needs AWS creds, runs after validate + security) ──────────
-  plan:
-    name: Terraform Plan
+  # ── Job 3: plan + apply — single job to avoid provider hash mismatch ───────
+  #
+  # Why one job instead of separate plan/apply jobs:
+  # Splitting plan and apply across jobs requires uploading the tfplan file as
+  # an artifact and re-running `terraform init` in the apply job. Each fresh
+  # `terraform init` re-downloads provider binaries whose SHA256 hashes may
+  # differ from the ones recorded in the plan file, causing Terraform to reject
+  # the plan with "Cannot apply incomplete plan." Running both steps in the same
+  # job on the same runner eliminates this entirely.
+  #
+  # Behaviour:
+  #   pull_request → plan only, post plan output as PR comment
+  #   push to main → plan then apply immediately in the same shell context
+  deploy:
+    name: Plan & Apply
     runs-on: ubuntu-latest
     needs: [validate, security]
 
     permissions:
       contents: read
       pull-requests: write
+
+    environment: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'production' || '' }}
 
     steps:
       - name: Checkout
@@ -112,42 +126,44 @@ jobs:
           cd ${{ env.TF_WORKING_DIR }}
           terraform init
 
+      # ── Plan ──────────────────────────────────────────────────────────────
       - name: Terraform plan
         id: plan
         run: |
           cd ${{ env.TF_WORKING_DIR }}
-          terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          set +e
+          terraform plan -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan_output.txt
+          TF_EXIT=${PIPESTATUS[0]}
+          echo "exit_code=${TF_EXIT}" >> $GITHUB_OUTPUT
+          # 0 = no changes, 1 = error, 2 = changes present — all valid here
+          exit 0
         env:
-          # Override variables that differ from defaults.
-          # Set these in GitHub → Settings → Variables (repository or environment).
           TF_VAR_model_arn: ${{ vars.CHATBOT_MODEL_ARN }}
           TF_VAR_cors_allowed_origin: ${{ vars.CHATBOT_CORS_ORIGIN }}
-        continue-on-error: true
 
+      # ── Post plan output as PR comment ────────────────────────────────────
       - name: Comment plan on pull request
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
-            const status = '${{ steps.plan.outputs.exit_code }}' === '0'
-              ? '✅ No changes'
-              : '${{ steps.plan.outputs.exit_code }}' === '1'
-              ? '❌ Plan failed'
-              : '📋 Changes pending';
+            const plan  = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+            const code  = '${{ steps.plan.outputs.exit_code }}';
+            const label = code === '0' ? '✅ No changes'
+                        : code === '1' ? '❌ Plan errored'
+                        :                '📋 Changes pending';
 
-            const body = `## Chatbot — Terraform Plan ${status}
+            const body = `## Chatbot — Terraform Plan ${label}
 
-            <details><summary>Show plan</summary>
+            <details><summary>Show plan output</summary>
 
-            \`\`\`terraform
+            \`\`\`hcl
             ${plan.substring(0, 60000)}
             \`\`\`
             </details>
 
-            *Triggered by commit \`${{ github.sha }}\` • ${new Date().toUTCString()}*`;
+            *Commit \`${{ github.sha }}\` · ${new Date().toUTCString()}*`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -156,56 +172,18 @@ jobs:
               body: body
             });
 
+      # ── Hard-fail if plan errored (exit 1) ────────────────────────────────
       - name: Fail if plan errored
         if: steps.plan.outputs.exit_code == '1'
-        run: exit 1
-
-      - name: Upload Terraform plan artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: chatbot-tfplan-${{ github.sha }}
-          path: ${{ env.TF_WORKING_DIR }}/tfplan
-          retention-days: 5
-
-  # ── Job 4: apply (push to main only, after plan succeeds) ─────────────────
-  apply:
-    name: Terraform Apply
-    runs-on: ubuntu-latest
-    needs: [plan]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    environment:
-      name: production
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up Terraform ${{ env.TF_VERSION }}
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform init
         run: |
-          cd ${{ env.TF_WORKING_DIR }}
-          terraform init
+          echo "terraform plan exited with error. See plan output above."
+          exit 1
 
-      - name: Download Terraform plan artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: chatbot-tfplan-${{ github.sha }}
-          path: ${{ env.TF_WORKING_DIR }}
-
+      # ── Apply — only on push to main, immediately after the plan above ────
+      # Using the same tfplan file produced moments ago in this same job/runner,
+      # so provider binaries and state are identical — no hash mismatch possible.
       - name: Terraform apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code != '1'
         run: |
           cd ${{ env.TF_WORKING_DIR }}
           terraform apply -no-color tfplan
@@ -214,6 +192,7 @@ jobs:
           TF_VAR_cors_allowed_origin: ${{ vars.CHATBOT_CORS_ORIGIN }}
 
       - name: Show outputs
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.plan.outputs.exit_code != '1'
         run: |
           cd ${{ env.TF_WORKING_DIR }}
           terraform output
