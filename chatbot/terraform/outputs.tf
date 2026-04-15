@@ -35,9 +35,9 @@ output "kb_documents_bucket_arn" {
   value       = aws_s3_bucket.kb_documents.arn
 }
 
-output "opensearch_collection_endpoint" {
-  description = "OpenSearch Serverless collection endpoint"
-  value       = aws_opensearchserverless_collection.kb_collection.collection_endpoint
+output "kb_db_cluster_endpoint" {
+  description = "Aurora PostgreSQL cluster endpoint (vector store)"
+  value       = aws_rds_cluster.kb_db.endpoint
 }
 
 output "conversation_log_table" {

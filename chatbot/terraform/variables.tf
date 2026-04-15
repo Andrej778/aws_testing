@@ -47,12 +47,6 @@ variable "embedding_model_id" {
   default     = "amazon.titan-embed-text-v2:0"
 }
 
-variable "kb_vector_index_name" {
-  description = "OpenSearch index name for vector embeddings"
-  type        = string
-  default     = "bank-kb-index"
-}
-
 variable "kb_number_of_results" {
   description = "Number of KB results to retrieve per query"
   type        = number

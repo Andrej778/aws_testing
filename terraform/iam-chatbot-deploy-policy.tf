@@ -82,33 +82,80 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
         Resource = "arn:aws:dynamodb:${var.aws_region}:*:table/aws-testing-terraform-locks"
       },
 
-      # ── OpenSearch Serverless: vector store collection ───────────────────
+      # ── RDS: Aurora PostgreSQL vector store ──────────────────────────────
       {
-        Sid    = "OpenSearchServerless"
+        Sid    = "RDSChatbot"
         Effect = "Allow"
         Action = [
-          "aoss:CreateCollection",
-          "aoss:DeleteCollection",
-          "aoss:UpdateCollection",
-          "aoss:DescribeCollection",
-          "aoss:ListCollections",
-          "aoss:BatchGetCollection",
-          "aoss:CreateSecurityPolicy",
-          "aoss:DeleteSecurityPolicy",
-          "aoss:GetSecurityPolicy",
-          "aoss:ListSecurityPolicies",
-          "aoss:UpdateSecurityPolicy",
-          "aoss:CreateAccessPolicy",
-          "aoss:DeleteAccessPolicy",
-          "aoss:GetAccessPolicy",
-          "aoss:ListAccessPolicies",
-          "aoss:UpdateAccessPolicy",
-          "aoss:TagResource",
-          "aoss:UntagResource",
-          "aoss:ListTagsForResource",
+          "rds:CreateDBCluster",
+          "rds:DeleteDBCluster",
+          "rds:DescribeDBClusters",
+          "rds:ModifyDBCluster",
+          "rds:RestoreDBClusterFromSnapshot",
+          "rds:CreateDBInstance",
+          "rds:DeleteDBInstance",
+          "rds:DescribeDBInstances",
+          "rds:ModifyDBInstance",
+          "rds:CreateDBSubnetGroup",
+          "rds:DeleteDBSubnetGroup",
+          "rds:DescribeDBSubnetGroups",
+          "rds:ModifyDBSubnetGroup",
+          "rds:AddTagsToResource",
+          "rds:RemoveTagsFromResource",
+          "rds:ListTagsForResource",
         ]
-        # OpenSearch Serverless does not support resource-level conditions
-        # on management actions — wildcard is required here
+        Resource = "*"
+      },
+      {
+        Sid    = "RDSDataAPI"
+        Effect = "Allow"
+        Action = ["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"]
+        Resource = "*"
+      },
+
+      # ── Secrets Manager: DB credentials for RDS Data API ────────────────
+      {
+        Sid    = "SecretsManagerChatbot"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:TagResource",
+          "secretsmanager:UntagResource",
+          "secretsmanager:ListSecretVersionIds",
+          "secretsmanager:RestoreSecret",
+        ]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.chatbot_project_name}-*"
+      },
+
+      # ── EC2: VPC/subnet/security-group lookups for RDS ───────────────────
+      {
+        Sid    = "EC2VPCReadChatbot"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeNetworkInterfaces",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EC2SecurityGroupChatbot"
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateSecurityGroup",
+          "ec2:DeleteSecurityGroup",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupEgress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:CreateTags",
+        ]
         Resource = "*"
       },
 

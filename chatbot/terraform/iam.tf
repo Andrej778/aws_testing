@@ -51,8 +51,8 @@ resource "aws_iam_role_policy" "bedrock_kb_s3_policy" {
   })
 }
 
-resource "aws_iam_role_policy" "bedrock_kb_opensearch_policy" {
-  name = "opensearch-serverless-access"
+resource "aws_iam_role_policy" "bedrock_kb_rds_policy" {
+  name = "rds-vector-store-access"
   role = aws_iam_role.bedrock_kb_role.id
 
   policy = jsonencode({
@@ -60,8 +60,13 @@ resource "aws_iam_role_policy" "bedrock_kb_opensearch_policy" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["aoss:APIAccessAll"]
-        Resource = aws_opensearchserverless_collection.kb_collection.arn
+        Action   = ["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"]
+        Resource = aws_rds_cluster.kb_db.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Resource = aws_secretsmanager_secret.kb_db.arn
       }
     ]
   })

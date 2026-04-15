@@ -16,24 +16,26 @@ resource "aws_bedrockagent_knowledge_base" "bank_kb" {
   }
 
   storage_configuration {
-    type = "OPENSEARCH_SERVERLESS"
+    type = "RDS"
 
-    opensearch_serverless_configuration {
-      collection_arn    = aws_opensearchserverless_collection.kb_collection.arn
-      vector_index_name = var.kb_vector_index_name
+    rds_configuration {
+      credentials_secret_arn = aws_secretsmanager_secret.kb_db.arn
+      database_name          = "bedrock_kb"
+      resource_arn           = aws_rds_cluster.kb_db.arn
+      table_name             = "bedrock_integration.bedrock_kb"
 
       field_mapping {
-        vector_field   = "embedding"
-        text_field     = "text"
-        metadata_field = "metadata"
+        vector_field      = "embedding"
+        text_field        = "chunks"
+        metadata_field    = "metadata"
+        primary_key_field = "id"
       }
     }
   }
 
   depends_on = [
-    aws_opensearchserverless_access_policy.kb_access,
-    aws_opensearchserverless_collection.kb_collection,
-    aws_iam_role_policy.bedrock_kb_opensearch_policy,
+    null_resource.kb_db_schema,
+    aws_iam_role_policy.bedrock_kb_rds_policy,
     aws_iam_role_policy.bedrock_kb_s3_policy,
     aws_iam_role_policy.bedrock_kb_model_policy,
   ]
