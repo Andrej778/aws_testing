@@ -14,10 +14,6 @@
 # the chatbot module without further manual intervention.
 # ---------------------------------------------------------------------------
 
-data "aws_iam_user" "deploy_user" {
-  user_name = var.deploy_user_name
-}
-
 resource "aws_iam_policy" "chatbot_deploy_policy" {
   name        = "ChatbotDeployPolicy"
   description = "Grants deploy-user the permissions needed to plan/apply chatbot/terraform/"
@@ -312,6 +308,6 @@ resource "aws_iam_policy" "chatbot_deploy_policy" {
 }
 
 resource "aws_iam_user_policy_attachment" "chatbot_deploy_policy_attachment" {
-  user       = data.aws_iam_user.deploy_user.user_name
+  user       = var.deploy_user_name
   policy_arn = aws_iam_policy.chatbot_deploy_policy.arn
 }
